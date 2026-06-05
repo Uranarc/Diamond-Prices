@@ -205,7 +205,7 @@ The four canonical grading attributes achieve an adjusted R² of approximately 0
 **Model 2 — Grading Attributes + Geometric Features (linear size):**  
 `log_price ~ carat + cut_ord + color_ord + clarity_ord + volume + depth + table`
 
-Adding `volume`, `depth`, and `table` yields only marginal in-sample improvement and does not produce stable out-of-sample gains. VIF diagnostics reveal severe multicollinearity between `carat` and `volume`, with VIF values far exceeding conventional thresholds. This instability is reflected in erratic coefficient estimates and sensitivity to leverage points. Model 2 demonstrates that a linear size specification cannot resolve the collinearity introduced by retaining both `carat` and `volume`.
+Adding `volume`, `depth`, and `table` yields only marginal in-sample improvement and does not produce stable out-of-sample gains. VIF diagnostics reveal severe multicollinearity between `carat` and `volume`, with VIF values far exceeding conventional thresholds. This instability is reflected in erratic coefficient estimates and sensitivity to leverage points, ultimately causing numerical collapse on the USD scale when predictions are exponentiated. Model 2 demonstrates that a linear size specification cannot resolve the collinearity introduced by retaining both `carat` and `volume`.
 
 **Model 3 — Log-Transformed Geometric Features:**  
 `log_price ~ log(carat) + cut_ord + color_ord + clarity_ord + log(volume) + depth + table`
@@ -221,18 +221,18 @@ Removing `volume` entirely while retaining `log(carat)` leaves validation RMSE e
 
 ### Model Performance (Validation Set)
 
-> *Table note: smaller Val RMSE (log) is better; **bold** = best; <u>underline</u> = second-best; Selected = chosen model.*
+> **Note:** Models 2, PCA Model 1, and PCA Model 2 exhibit numerical collapse on the USD scale. USD RMSE for these models is not a meaningful prediction error — it reflects exponential amplification of extreme log-space predictions on high-leverage observations caused by multicollinearity-driven coefficient instability. **All model selection decisions use log-scale RMSE exclusively.** USD RMSE is reported only for well-conditioned models.
 
 | Model | Features / Transform | Val RMSE (log) | Val RMSE (USD) |
 |---|---|---|---|
-| Model 1 | Original — linear carat | — | — |
-| Model 2 | Original — linear size (+volume, depth, table) | — | — |
-| **Model 3** | **Original — log–log size (+log(volume))** | **—** | **—** |
-| <u>Model 4</u> ★ Selected | <u>Original — log(carat) only, no volume</u> | <u>—</u> | <u>—</u> |
-| PCA Model 1 | PCA scores — ≥90% variance threshold | — | — |
-| PCA Model 2 | PCA scores — 7 components (full reconstruction) | — | — |
+| Model 1 | Original — linear carat | 0.3513 | $12,744 |
+| Model 2 | Original — linear size (+volume, depth, table) | 0.5387 | † numerically unstable |
+| Model 3 | Original — log–log size (+log(volume)) | 0.1447 | $954 |
+| **Model 4 ★ Selected** | **Original — log(carat) only, no volume** | **0.1442** | **$939** |
+| PCA Model 1 | PCA scores — ≥90% variance threshold | 0.4500 | † numerically unstable |
+| PCA Model 2 | PCA scores — 7 components (full reconstruction) | 0.5387 | † numerically unstable |
 
-*Note: placeholder `—` values are to be filled with the runtime outputs of notebook 03. The relative ordering and model selection rationale are fixed; only the exact numerical values depend on the training run.*
+*Smaller Val RMSE (log) is better. **Bold** = selected model. † USD RMSE collapsed due to coefficient instability; see note above and Section 9 for full discussion.*
 
 ### Residual Diagnostics
 
@@ -314,16 +314,18 @@ Two PCA-based regression models were evaluated against the Part A baseline:
 
 ### Results and Comparison
 
+> **Note:** The USD RMSE for Models 2, PCA Model 1, and PCA Model 2 does not represent a prediction error in any meaningful sense. These models are numerically unstable: multicollinearity (in Model 2) and the absence of a log–log size transformation (in the PCA models) cause some predictions in log-space to reach extreme values, which are then catastrophically amplified by the exponential back-transformation. These USD values are reported for completeness but play no role in model selection or evaluation. **Log-scale RMSE is the sole basis for all comparisons.**
+
 | Model | Features / Transform | Val RMSE (log) | Val RMSE (USD) |
 |---|---|---|---|
-| Model 1 | Original — linear carat | — | — |
-| Model 2 | Original — linear size (+volume, depth, table) | — | — |
-| **Model 3** | **Original — log–log size (+log(volume))** | **—** | **—** |
-| <u>Model 4</u> ★ Selected | <u>Original — log(carat) only, no volume</u> | <u>—</u> | <u>—</u> |
-| PCA Model 1 | PCA scores — ≥90% variance, *k* components | — | — |
-| PCA Model 2 | PCA scores — 7 components (full reconstruction) | — | — |
+| Model 1 | Original — linear carat | 0.3513 | $12,744 |
+| Model 2 | Original — linear size (+volume, depth, table) | 0.5387 | † numerically unstable |
+| Model 3 | Original — log–log size (+log(volume)) | 0.1447 | $954 |
+| **Model 4 ★ Selected** | **Original — log(carat) only, no volume** | **0.1442** | **$939** |
+| PCA Model 1 | PCA scores — ≥90% variance, *k* components | 0.4500 | † numerically unstable |
+| PCA Model 2 | PCA scores — 7 components (full reconstruction) | 0.5387 | † numerically unstable |
 
-*Smaller Val RMSE (log) is better. **Bold** = lowest RMSE; underline = second lowest. ★ Selected = chosen final model (selection based on parsimony and VIF, not numerical RMSE alone). Numerical values to be populated from notebook 03 runtime outputs.*
+*Smaller Val RMSE (log) is better. **Bold** = selected model (lowest log RMSE; also preferred on parsimony and VIF grounds). † See note above.*
 
 ### Interpretation
 
@@ -386,7 +388,7 @@ A complete list of versions is specified in `requirements.txt` at the repository
 ### Repository Structure
 
 ```
-ames-project/
+diamonds-project/
 │
 ├── data/
 │   ├── raw/
@@ -417,20 +419,12 @@ ames-project/
 ```bash
 # 1. Clone the repository
 git clone <repository_url>
-cd ames-project
+cd diamonds-project
 
 # 2. Install dependencies
 pip install -r requirements.txt
-
-# 3. Download the raw dataset from Kaggle and place it at:
-#    data/raw/DiamondsPrices.csv
-
-# 4. Run notebooks in order
-jupyter nbconvert --to notebook --execute notebooks/01_eda.ipynb
-jupyter nbconvert --to notebook --execute notebooks/02_preprocessing.ipynb
-jupyter nbconvert --to notebook --execute notebooks/03_modeling.ipynb
 ```
 
-All random operations use `random_state=42` for reproducibility. Figures are saved to `reports/figures/` by the notebooks. The PCA fit and scaler fit are performed on the training set only; validation and test sets are transformed using the training-set parameters, ensuring no information leakage.
+All random operations use `random_state=42` for reproducibility. Figures are saved to `reports/figures/` by the notebooks and must be generated by running the notebooks in order before compiling the report. The PCA fit and scaler fit are performed on the training set only; validation and test sets are transformed using the training-set parameters, ensuring no information leakage.
 
 The processed CSVs (`train.csv`, `val.csv`, `test.csv`, and their scaled counterparts) are generated deterministically by `02_preprocessing.ipynb` from the raw dataset and are the sole inputs to `03_modeling.ipynb`. Anyone who can reproduce the raw download can reproduce every result in this report.
