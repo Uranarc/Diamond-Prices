@@ -282,11 +282,13 @@ The 90% variance threshold is used to determine the truncation point for PCA-bas
 
 The loadings heatmap reveals two principal information axes:
 
-**PC1 — Size axis:** Large positive loadings on `carat` and `volume`, with smaller contributions from `depth` and `table`. This is the dominant pricing axis — the direction along which diamond feature vectors vary most in the standardised space. Its alignment with the regression's dominant predictor (`log(carat)`) validates the modelling approach.
+**PC1 — Size axis:** Large positive loadings on `carat` and `volume`, with smaller contributions from `table` and `depth`. This is the dominant pricing axis — the direction along which diamond feature vectors vary most in the standardised space. Its alignment with the regression's dominant predictor (`log(carat)`) validates the modelling approach.
 
-**PC2 — Quality axis:** Driven by `color_ord`, `clarity_ord`, and `cut_ord`. Captures the grading variation that is substantially orthogonal to physical size. Two diamonds of the same size can differ substantially on this axis, and PC2 represents that quality premium.
+**PC2 — Shape axis:** Driven primarily by `table` (0.67) and `cut_ord` (−0.54). Captures variation in cut proportions that is largely orthogonal to physical size. Two diamonds of the same carat can differ substantially on this axis depending on their table width and cut grade.
 
-**PC3+ — Shape proportions / residual:** Higher components with large loadings on `depth` and `table` carry the shape-proportion information. These features had small but significant coefficients in the regression, and they occupy the tail of the scree plot — real but secondary signal.
+**PC3 — Depth axis:** Almost entirely driven by `depth` (0.81), with a secondary loading on `cut_ord` (−0.46). Isolates the depth-proportion signal from the other shape and size components.
+
+**PC4/PC5 — Quality axes:** `color_ord` and `clarity_ord` only emerge as dominant loadings in PC4 and PC5. These components represent the grading premium — real but secondary signal — consistent with their smaller regression coefficients relative to `log(carat)`.
 
 ![PCA loadings heatmap](../reports/figures/pca_loadings_heatmap.png)
 
