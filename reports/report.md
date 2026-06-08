@@ -26,7 +26,6 @@ The dataset is well suited to regression modelling: it contains multiple numeric
 
 ## 2. Variable Dictionary and Measurement Types
 
-Variable type is an analytical decision, not merely metadata. Treating an ordinal variable as nominal destroys rank information; treating it as continuous imposes an equal-spacing assumption. The three quality grades (`cut`, `color`, `clarity`) are ordinal by domain consensus — gemological grading defines their natural ordering — and are encoded accordingly.
 
 | Variable | Data Type | Measurement Level | Description |
 |---|---|---|---|
