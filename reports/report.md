@@ -44,7 +44,6 @@ The dataset is well suited to regression modelling: it contains multiple numeric
 
 | Variable | Data Type | Measurement Level | Description |
 |---|---|---|---|
-| `volume` | float64 | Ratio | Physical volume = x × y × z (mm³); consolidates three collinear dimensions |
 | `log_price` | float64 | Interval | Natural log of price; primary regression target |
 | `cut_ord` | int64 | Ordinal (encoded) | Integer encoding of cut: 0 (Fair) – 4 (Ideal) |
 | `color_ord` | int64 | Ordinal (encoded) | Integer encoding of colour: 0 (J) – 6 (D) |
@@ -90,7 +89,7 @@ The numeric quality report, computed on the full dataset, characterises the dist
 
 **`table`:** Low-to-moderate skewness. Very weak correlation with price (r = 0.13). Both `depth` and `table` are classified as well-behaved for linear modelling but provide marginal predictive power in isolation.
 
-**`volume` (derived):** By construction, the product of three right-skewed variables produces a feature with strong right skew and high variance. Log-transforming it is empirically justified and consistent with the log–log price–size relationship explored in the modelling section.
+**`x`, `y`, `z`:** Moderately skewed with a few extreme values. Several zero-valued entries are present (physically impossible) and are removed during preprocessing. These three dimensions are highly collinear with `carat` (r > 0.95), which motivates their exclusion from the regression model in favour of `carat` as the sole size predictor. They are retained separately for use in PCA.
 
 ![Price distribution (raw)](../reports/figures/price_distribution_raw.png)
 
@@ -127,11 +126,11 @@ Pearson correlations between numeric features and `price` reveal a dominant size
 The Pearson correlation matrix among predictors exposes severe multicollinearity:
 
 - **carat × x = 0.98**, and pairwise correlations among x, y, z range from 0.95 to 0.97.
-- `volume` (derived) is necessarily highly correlated with all three dimension variables and with `carat`.
+- All four size-related variables (`carat`, `x`, `y`, `z`) essentially encode the same latent dimension.
 
-This structure motivates the consolidation of `x`, `y`, `z` into `volume` and the application of VIF diagnostics in the modelling phase.
+This structure motivates the exclusion of `x`, `y`, `z` from the regression model and the retention of `carat` as the primary size metric, along with the application of VIF diagnostics in the modelling phase.
 
-**Pearson vs Spearman comparison:** The Spearman rank correlation between `carat` and `price` is higher than Pearson, indicating that the relationship is monotonically strong but non-linear in the raw scale. This observation directly motivates the log–log specification tested in Models 3 and 4.
+**Pearson vs Spearman comparison:** The Spearman rank correlation between `carat` and `price` is higher than Pearson, indicating that the relationship is monotonically strong but non-linear in the raw scale. This observation directly motivates the log transformation of `carat` tested in Models 3 and 4.
 
 ![Pearson correlation heatmap](../reports/figures/correlation_heatmap.png)
 
@@ -139,7 +138,7 @@ This structure motivates the consolidation of `x`, `y`, `z` into `volume` and th
 
 ### Categorical–Numeric Associations
 
-Boxplot analysis shows that `price` varies across cut, colour, and clarity levels, but the within-category distributions are wide and overlapping. The mean price differences between quality grades are modest compared to the variance driven by carat. No single categorical variable produces clean price separation in isolation, consistent with the R² of approximately 0.90 achieved by a model that includes all four grading attributes.
+Boxplot analysis shows that `price` varies across cut, colour, and clarity levels, but the within-category distributions are wide and overlapping. The mean price differences between quality grades are modest compared to the variance driven by carat. No single categorical variable produces clean price separation in isolation, consistent with the adj. R² of 0.890 achieved by a model that includes all four grading attributes with a linear size specification.
 
 ### Categorical–Categorical Associations
 
@@ -171,7 +170,7 @@ Model selection and comparison are made exclusively on the **validation set**. T
 
 **Primary metric:** RMSE on the log scale (`log_price`), used for all model comparisons and selection decisions. Log-scale RMSE is preferred for model selection because it reflects proportional prediction error uniformly across the price range, without being dominated by expensive stones.
 
-**Secondary metric:** RMSE on the original USD scale, reported for interpretive purposes only. A log-scale RMSE of approximately 0.10–0.15 corresponds to a geometric mean prediction error of roughly 10–16%, which is more representative of the model's typical accuracy than the dollar-scale RMSE.
+**Secondary metric:** RMSE on the original USD scale, reported for interpretive purposes only. A log-scale RMSE of ~0.13 (Models 3–4) corresponds to a geometric mean prediction error of roughly 14%, which is more representative of the model's typical accuracy than the dollar-scale RMSE.
 
 RMSE is appropriate here because prediction errors are continuous, large errors should be penalised more than proportionally, and the symmetric loss function aligns with the regression objective. MAE would be valid but less sensitive to the tail errors that are substantively important in this market context. R² is reported as a supplementary descriptive statistic but does not drive model selection.
 
@@ -187,8 +186,8 @@ The preprocessing pipeline follows strict train-first methodology:
 2. **Duplicate removal:** Exact-duplicate rows are removed before splitting (keeping first occurrence).
 3. **Split:** 70/15/15 train/validation/test, stratified by `random_state=42`.
 4. **Ordinal encoding:** `cut`, `color`, and `clarity` are mapped to integers using domain-fixed ordinal scales. The mappings are not data-dependent and are applied identically to all splits.
-5. **Feature engineering:** `volume = x × y × z` is computed deterministically. `log_price = log(price)` is computed as the regression target.
-6. **Multicollinearity reduction:** `x`, `y`, and `z` are excluded from the modelling feature set and replaced by `volume`, reducing three collinear columns to one semantically grounded feature while retaining `carat` as the primary size metric.
+5. **Feature engineering:** `log_price = log(price)` is computed as the regression target.
+6. **Multicollinearity reduction:** `x`, `y`, and `z` are excluded from the modelling feature set entirely. `carat` is retained as the primary size metric. `x`, `y`, `z` are preserved separately for PCA only.
 
 No numerical imputation is performed because the modelling dataset contains no missing values after the physical validity step.
 
@@ -197,53 +196,50 @@ No numerical imputation is performed because the modelling dataset contains no m
 Four OLS models were evaluated on the validation set. The models are described in order of increasing specification richness.
 
 **Model 1 — Baseline (4Cs only, linear carat):**  
-`log_price ~ carat + cut_ord + color_ord + clarity_ord`
+`log_price ~ carat + C(cut_ord) + C(color_ord) + C(clarity_ord)`
 
-The four canonical grading attributes achieve an adjusted R² of approximately 0.897 on the training set. The coefficient on `carat` is large and positive; coefficients on `color_ord` and `clarity_ord` are also significant and positive; `cut_ord` is significant but smaller in magnitude. Validation RMSE establishes the performance floor. Despite the strong R², original-scale RMSE is substantial due to the wide price range.
+The four canonical grading attributes achieve an adjusted R² of 0.890 on the training set. The ordinal quality variables are entered as dummy-coded categorical predictors via `C()`, allowing each grade level to have its own effect rather than assuming equal spacing. The coefficient on `carat` is 2.204 — large, positive, and highly significant. Coefficients on `clarity_ord` levels are the largest in magnitude (up to ~1.07 for IF), followed by `color_ord` levels (up to ~0.585 for D); `cut_ord` levels are significant but smaller (~0.04–0.07). Validation RMSE of 0.3412 on the log scale establishes the performance floor.
 
-**Model 2 — Grading Attributes + Geometric Features (linear size):**  
-`log_price ~ carat + cut_ord + color_ord + clarity_ord + volume + depth + table`
+**Model 2 — Grading Attributes + Shape Ratios:**  
+`log_price ~ carat + C(cut_ord) + C(color_ord) + C(clarity_ord) + depth + table`
 
-Adding `volume`, `depth`, and `table` yields only marginal in-sample improvement and does not produce stable out-of-sample gains. VIF diagnostics reveal severe multicollinearity between `carat` and `volume`, with VIF values far exceeding conventional thresholds. This instability is reflected in erratic coefficient estimates and sensitivity to leverage points, ultimately causing numerical collapse on the USD scale when predictions are exponentiated. Model 2 demonstrates that a linear size specification cannot resolve the collinearity introduced by retaining both `carat` and `volume`.
+Adding `depth` and `table` yields only marginal improvement (adj. R² 0.890, essentially unchanged). `table` is statistically significant (β = 0.006, p < 0.001) but `depth` is not (β ≈ 0, p = 0.827), confirming that the proportional depth adds no incremental price signal. VIF diagnostics show no meaningful multicollinearity from these shape ratios, though the condition number rises to 6,400 — a sign of potential numerical sensitivity. Validation RMSE drops marginally to 0.3409. The key limitation remains the linear specification for `carat`.
 
-**Model 3 — Log-Transformed Geometric Features:**  
-`log_price ~ log(carat) + cut_ord + color_ord + clarity_ord + log(volume) + depth + table`
+**Model 3 — Log-Transformed Size Feature:**  
+`log_price ~ log(carat) + C(cut_ord) + C(color_ord) + C(clarity_ord) + depth + table`
 
-Log-transforming `carat` and `volume` produces the largest single RMSE improvement across all specifications, confirming that the price–size relationship is log–log in nature. The coefficient on `log(carat)` is large and economically interpretable as a price elasticity with respect to size. All quality grade coefficients retain expected signs and magnitudes. VIF remains high between `log(carat)` and `log(volume)`, indicating that the collinearity is structural rather than a scaling artefact. Model 3 is a high-performing but structurally redundant specification.
+Log-transforming `carat` produces the largest single improvement across all specifications: adj. R² jumps to 0.983 and validation RMSE falls to 0.1336. The coefficient on `log(carat)` is 1.885 — interpretable as a price elasticity: a 1% increase in carat weight is associated with an ~1.9% increase in price, holding quality constant. `depth` is marginally significant (β = −0.001, p = 0.016) and `table` is not (β ≈ −0.001, p = 0.108). All quality grade levels retain expected signs. The condition number remains at 6,400, flagging residual numerical sensitivity from the shape ratio features.
 
 **Model 4 — Parsimonious Log-Linear (selected final model):**  
-`log_price ~ log(carat) + cut_ord + color_ord + clarity_ord + depth + table`
+`log_price ~ log(carat) + C(cut_ord) + C(color_ord) + C(clarity_ord)`
 
-Removing `volume` entirely while retaining `log(carat)` leaves validation RMSE essentially unchanged relative to Model 3, indicating that `log(carat)` is a sufficient statistic for size once the non-linear scaling is accounted for. VIF drops to low levels across all predictors, restoring well-identified and interpretable coefficient estimates. All remaining predictors are statistically significant with economically expected signs.
+Removing `depth` and `table` entirely leaves validation RMSE at 0.1336 — identical to Model 3 to four decimal places. Adj. R² is 0.983. The condition number drops sharply from 6,400 to 34, confirming that the numerical sensitivity in Model 3 was introduced by the shape ratio features, not by `log(carat)`. All remaining coefficients are highly significant with economically expected signs; the `log(carat)` elasticity is 1.885.
 
-**Model 4 is selected as the final regression model** on grounds of parsimony, structural stability, and domain interpretability. The marginal predictive cost of removing `volume` is negligible; the benefit in coefficient stability and interpretability is material.
+**Model 4 is selected as the final regression model** on grounds of parsimony, numerical stability, and domain interpretability. The predictive cost of removing `depth` and `table` is zero (RMSE identical to Model 3); the benefit is a well-conditioned model (condition number 34 vs 6,400) that aligns with the standard Four Cs specification.
 
 ### Model Performance (Validation Set)
 
-> **Note:** Models 2, PCA Model 1, and PCA Model 2 exhibit numerical collapse on the USD scale. USD RMSE for these models is not a meaningful prediction error — it reflects exponential amplification of extreme log-space predictions on high-leverage observations caused by multicollinearity-driven coefficient instability. **All model selection decisions use log-scale RMSE exclusively.** USD RMSE is reported only for well-conditioned models.
-
 | Model | Features / Transform | Val RMSE (log) | Val RMSE (USD) |
 |---|---|---|---|
-| Model 1 | Original — linear carat | 0.3513 | $12,744 |
-| Model 2 | Original — linear size (+volume, depth, table) | 0.5387 | † numerically unstable |
-| Model 3 | Original — log–log size (+log(volume)) | 0.1447 | $954 |
-| **Model 4 ★ Selected** | **Original — log(carat) only, no volume** | **0.1442** | **$939** |
-| PCA Model 1 | PCA scores — ≥90% variance threshold | 0.4500 | † numerically unstable |
-| PCA Model 2 | PCA scores — 7 components (full reconstruction) | 0.5387 | † numerically unstable |
+| Model 1 | 4Cs — linear carat, dummy-coded grades | 0.3412 | $81,005 |
+| Model 2 | Linear carat + depth + table | 0.3409 | $80,256 |
+| Model 3 | log(carat) + depth + table | 0.1336 | $788 |
+| **Model 4 ★ Selected** | **log(carat), no depth/table** | **0.1336** | **$789** |
+| PCA Model 1 | 3 PC scores — ≥90% variance | 0.2948 | $6,987 |
+| PCA Model 2 | 3 PC scores + cut/color/clarity | 0.2175 | $6,895 |
+| PCA Model 3 | 6 PC scores — full reconstruction | 0.2547 | $1,477 |
 
-*Smaller Val RMSE (log) is better. **Bold** = selected model. † USD RMSE collapsed due to coefficient instability; see note above and Section 9 for full discussion.*
+*Smaller Val RMSE (log) is better. **Bold** = selected model.*
 
 ### Residual Diagnostics
 
-Residual analysis for Model 4 should confirm the following, which is consistent with the notebook's stated findings and EDA conclusions:
+**Residuals vs fitted values:** Model 1 exhibits a fan-shaped spread consistent with heteroscedasticity from predicting a skewed target with a linear size specification. The log transformation of `carat` in Models 3 and 4 substantially reduces this — adj. R² jumps from 0.890 to 0.983 and the skewness of residuals falls from −1.17 to +0.21.
 
-**Residuals vs fitted values:** Model 1 exhibits a fan-shaped spread — variance expanding with fitted values — which is the expected signature of heteroscedasticity when predicting a skewed target in levels. After applying `log_price` as the target, this pattern is substantially reduced. Any residual fan shape in Model 4 would indicate that the log transformation has not fully stabilised variance.
+**QQ plot / normality:** Model 4 residuals show skewness of 0.209 and excess kurtosis of ~5.2, an improvement over Models 1–2 (skewness ~−1.17, kurtosis ~8.7) but still indicating heavier tails than a normal distribution. Deviations in the upper tail suggest that high-carat diamond predictions are somewhat underestimated, consistent with the known price nonlinearity at the extreme upper market.
 
-**QQ plot of residuals:** Given the log transformation, residuals should be approximately normal. Deviations in the upper tail would indicate that high-carat diamond predictions are systematically underestimated, consistent with the known price nonlinearity at the extreme upper end of the market.
+**Condition number:** Model 2 and Model 3 show a condition number of 6,400, flagging potential numerical sensitivity introduced by adding `depth` and `table` to the design matrix. Model 4's condition number is 34 — well within acceptable bounds — confirming that removing the shape ratios resolves this entirely.
 
-**Leverage and influential observations:** Diamonds at extreme carat values (> 3 carats) are high-leverage points. In Model 2 and 3 (which include `volume`), these observations can destabilise coefficient estimates — a major driver of Model 2's poor validation performance despite strong in-sample R².
-
-**Error analysis:** Original-scale RMSE is dominated by prediction errors on large, expensive stones. A 10% error on a \$15,000 diamond contributes far more to RMSE than a 10% error on a \$500 diamond. The log-scale RMSE is the appropriate summary of typical model accuracy across the full distribution.
+**Error analysis:** Original-scale RMSE is dominated by prediction errors on large, expensive stones. A 10% error on a \$15,000 diamond contributes far more to RMSE than a 10% error on a \$500 diamond. Log-scale RMSE is the appropriate summary of typical accuracy across the full distribution.
 
 ---
 
@@ -251,21 +247,21 @@ Residual analysis for Model 4 should confirm the following, which is consistent 
 
 ### Variables Selected
 
-PCA is applied to the seven modelling features after removing the regression target and reference price columns: `carat`, `cut_ord`, `color_ord`, `clarity_ord`, `depth`, `table`, and `volume`. This is the full set of predictors used in the regression models.
+PCA is applied to the six standardised continuous features: `carat`, `depth`, `table`, `x`, `y`, and `z`. The three ordinal quality grades (`cut_ord`, `color_ord`, `clarity_ord`) are excluded from the decomposition — they enter the regression models directly without PCA rotation, as ordinal integer scales do not have a meaningful notion of "variance" comparable to continuous measurements. The regression targets (`log_price`, `price`) are also excluded.
 
 ### Standardisation Rationale
 
-PCA is a variance-based decomposition. If features are on heterogeneous scales — `volume` is in the hundreds of mm³ while `cut_ord` ranges from 0 to 4 — the principal components will be driven by variance in the highest-magnitude features, irrespective of their structural importance. Standardisation to zero mean and unit variance (z-scores) removes this scale bias and is a necessary precondition for a meaningful decomposition.
+PCA is a variance-based decomposition. If features are on heterogeneous scales — `x`, `y`, `z` are in millimetres while `depth` and `table` are percentages and `carat` is in tenths of grams — the principal components will be driven by variance in the highest-magnitude features, irrespective of their structural importance. Standardisation to zero mean and unit variance (z-scores) removes this scale bias and is a necessary precondition for a meaningful decomposition.
 
 `StandardScaler` was fit exclusively on the training set. The fitted scaler (means and standard deviations per feature) was then applied without refitting to the validation and test sets, maintaining the train-first methodology throughout and preventing leakage of validation or test covariance structure into the decomposition.
 
 ### Explained Variance
 
-The scree plot and cumulative variance table confirm that the effective dimensionality of the feature set is substantially lower than seven. The dominant finding is:
+The scree plot and cumulative variance table confirm that the effective dimensionality of the feature set is substantially lower than six. The dominant finding is:
 
-- **PC1** captures a disproportionately large share of total variance — expected to exceed 50% — dominated by the size features (`carat` and `volume`), which are highly correlated with each other and with price.
-- **PC2** captures the second axis, driven by the quality grades (`color_ord`, `clarity_ord`, `cut_ord`).
-- **PC3+** capture residual variance primarily associated with shape ratios (`depth`, `table`) and the orthogonal components of quality variation.
+- **PC1** captures a disproportionately large share of total variance — expected to exceed 50% — dominated by the size features (`carat`, `x`, `y`, `z`), which are highly correlated with each other and with price.
+- **PC2** captures the second axis, driven primarily by shape ratio features (`table`, `depth`), largely orthogonal to physical size.
+- **PC3+** capture residual variance associated with the remaining shape and size orthogonal components.
 
 **Kaiser criterion (eigenvalue > 1):** Expected to select 2–3 components, consistent with the VIF diagnostics that flagged multicollinearity in the regression models.
 
@@ -279,23 +275,23 @@ The 90% variance threshold is used to determine the truncation point for PCA-bas
 
 ### Component Loadings and Interpretability
 
-The loadings heatmap reveals two principal information axes:
+The loadings heatmap reveals the principal information axes of the six continuous features:
 
-**PC1 — Size axis:** Large positive loadings on `carat` and `volume`, with smaller contributions from `table` and `depth`. This is the dominant pricing axis — the direction along which diamond feature vectors vary most in the standardised space. Its alignment with the regression's dominant predictor (`log(carat)`) validates the modelling approach.
+**PC1 — Size axis:** Large positive loadings on `carat`, `x`, `y`, and `z`. This is the dominant pricing axis — the direction along which diamond feature vectors vary most in the standardised space. Its alignment with the regression's dominant predictor (`log(carat)`) validates the modelling approach.
 
-**PC2 — Shape axis:** Driven primarily by `table` (0.67) and `cut_ord` (−0.54). Captures variation in cut proportions that is largely orthogonal to physical size. Two diamonds of the same carat can differ substantially on this axis depending on their table width and cut grade.
+**PC2 — Shape axis:** Driven primarily by `table` and, secondarily, `depth`. Captures variation in cut proportions that is largely orthogonal to physical size. Two diamonds of the same carat can differ substantially on this axis depending on their table width and overall depth geometry.
 
-**PC3 — Depth axis:** Almost entirely driven by `depth` (0.81), with a secondary loading on `cut_ord` (−0.46). Isolates the depth-proportion signal from the other shape and size components.
+**PC3 — Depth axis:** Almost entirely driven by `depth`, with a secondary loading from `table`. Isolates the depth-proportion signal from the other shape and size components.
 
-**PC4/PC5 — Quality axes:** `color_ord` and `clarity_ord` only emerge as dominant loadings in PC4 and PC5. These components represent the grading premium — real but secondary signal — consistent with their smaller regression coefficients relative to `log(carat)`.
+**PC4+:** Capture the remaining orthogonal variance in the size features (`x`, `y`, `z`) once PC1 has absorbed most of the shared size information.
 
 ![PCA loadings heatmap](../reports/figures/pca_loadings_heatmap.png)
 
 ### Biplot — PC1 vs PC2
 
-The biplot of a subsample of training observations on the PC1–PC2 plane, coloured by `log_price`, confirms that the price gradient aligns strongly with PC1. Observations at the right extreme of PC1 are predominantly high-priced large diamonds; those at the left are small, lower-priced stones. The `carat` and `volume` loading vectors point in nearly the same direction along PC1, making their redundancy geometrically explicit.
+The biplot of a subsample of training observations on the PC1–PC2 plane, coloured by `log_price`, confirms that the price gradient aligns strongly with PC1. Observations at the right extreme of PC1 are predominantly high-priced large diamonds; those at the left are small, lower-priced stones. The `carat`, `x`, `y`, and `z` loading vectors point in nearly the same direction along PC1, making their redundancy geometrically explicit.
 
-![PCA biplot PC1 vs PC2 coloured by log_price](../reports/figures/pca_biplot_pc1_pc2.png)
+![PCA biplot PC1 vs PC2 coloured by log_price](figures/img.png)
 
 ### Interpretability Limits
 
@@ -307,36 +303,37 @@ PCA coefficients describe directions in an abstract rotated space rather than th
 
 ### Models and Component Selection
 
-Two PCA-based regression models were evaluated against the Part A baseline:
+Three PCA-based regression models were evaluated against the Part A baseline:
 
-**PCA Model 1:** OLS on the first *k* PC scores, where *k* is determined by the 90% cumulative variance threshold. PC scores are orthogonal by construction, so VIF = 1 for every predictor — a structural advantage over Part A models where `carat`/`volume` collinearity required careful management.
+**PCA Model 1:** OLS on the first *k* PC scores, where *k* is determined by the 90% cumulative variance threshold. PC scores are orthogonal by construction, so VIF = 1 for every predictor — a structural advantage over Part A models where `carat` collinearity with the shape features required careful management.
 
-**PCA Model 2:** OLS on all 7 PC scores (full reconstruction). Since PCA is an orthonormal rotation, this model spans the same column space as OLS on the original standardised features. It serves as a sanity check: its RMSE should approximate Model 2 from Part A (which uses all 7 features linearly). Any large discrepancy would indicate a structural issue.
+**PCA Model 2:** Augments PCA Model 1 with the three ordinal quality grades (`cut_ord`, `color_ord`, `clarity_ord`) entered directly (not rotated through PCA). This tests whether adding the quality information that was deliberately excluded from the decomposition recovers predictive performance.
+
+**PCA Model 3:** OLS on all available PC scores (full reconstruction). Since PCA is an orthonormal rotation, this model spans the same column space as OLS on the original standardised continuous features. It serves as a sanity check: its RMSE should approximate the linear Part A models (Models 1–2). Any large discrepancy would indicate a structural issue.
 
 ### Results and Comparison
 
-> **Note:** The USD RMSE for Models 2, PCA Model 1, and PCA Model 2 does not represent a prediction error in any meaningful sense. These models are numerically unstable: multicollinearity (in Model 2) and the absence of a log–log size transformation (in the PCA models) cause some predictions in log-space to reach extreme values, which are then catastrophically amplified by the exponential back-transformation. These USD values are reported for completeness but play no role in model selection or evaluation. **Log-scale RMSE is the sole basis for all comparisons.**
-
 | Model | Features / Transform | Val RMSE (log) | Val RMSE (USD) |
 |---|---|---|---|
-| Model 1 | Original — linear carat | 0.3513 | $12,744 |
-| Model 2 | Original — linear size (+volume, depth, table) | 0.5387 | † numerically unstable |
-| Model 3 | Original — log–log size (+log(volume)) | 0.1447 | $954 |
-| **Model 4 ★ Selected** | **Original — log(carat) only, no volume** | **0.1442** | **$939** |
-| PCA Model 1 | PCA scores — ≥90% variance, *k* components | 0.4500 | † numerically unstable |
-| PCA Model 2 | PCA scores — 7 components (full reconstruction) | 0.5387 | † numerically unstable |
+| Model 1 | 4Cs — linear carat, dummy-coded grades | 0.3412 | $81,005 |
+| Model 2 | Linear carat + depth + table | 0.3409 | $80,256 |
+| Model 3 | log(carat) + depth + table | 0.1336 | $788 |
+| **Model 4 ★ Selected** | **log(carat), no depth/table** | **0.1336** | **$789** |
+| PCA Model 1 | 3 PC scores — ≥90% variance | 0.2948 | $6,987 |
+| PCA Model 2 | 3 PC scores + cut/color/clarity | 0.2175 | $6,895 |
+| PCA Model 3 | 6 PC scores — full reconstruction | 0.2547 | $1,477 |
 
-*Smaller Val RMSE (log) is better. **Bold** = selected model (lowest log RMSE; also preferred on parsimony and VIF grounds). † See note above.*
+*Smaller Val RMSE (log) is better. **Bold** = selected model.*
 
 ### Interpretation
 
-**PCA Model 2 vs Part A models:** PCA Model 2 is expected to approximate Model 2 from Part A (linear features, no log transformation), because both operate in the same linear function space on standardised features. Any performance gap relative to Model 4 is attributable to the log–log transformation: log-transforming `carat` introduces a non-linearity that PC scores — being linear combinations of z-scored features — cannot replicate.
+**PCA Model 3 vs Part A models:** PCA Model 3 (6 components, full reconstruction) achieves RMSE 0.2547, which is between the linear Part A models (0.34) and the log-transformed models (0.13). The gap relative to Models 1–2 is expected — PCA Model 3 includes the `x`, `y`, `z` information that Models 1–2 exclude, which helps. The gap relative to Model 4 is attributable to the log transformation of `carat`: log-transforming introduces a non-linearity that PC scores — being linear combinations of z-scored features — cannot replicate.
 
-**PCA Model 1 vs PCA Model 2:** The RMSE difference between the truncated and full PCA models quantifies the information cost of discarding the low-variance components. This gap is expected to be small, consistent with the Part B finding that PC3+ have near-zero correlation with `log_price`. This confirms that the low-variance components are also low price-signal components — the two criteria align, which is the ideal scenario for PCA-based dimensionality reduction.
+**PCA Model 1 vs PCA Model 3:** Truncating to 3 components (≥90% variance) raises RMSE from 0.2547 to 0.2948. The gap is moderate, indicating that the discarded components (PC4–PC6) carry some price-relevant information despite their low variance share.
 
-**Overall verdict:** PCA-based regression is a legitimate and multicollinearity-free modelling approach, but on this dataset it is expected to underperform the best Part A model because the dominant price–size relationship is log–log in nature. PCA cannot capture this non-linearity through a linear rotation of standardised features. The interpretability trade-off is also unfavourable: PC coefficients describe abstract variance axes rather than the original diamond attributes.
+**PCA Model 2 vs PCA Model 1:** Adding the ordinal quality grades directly to PCA Model 1 reduces RMSE from 0.2948 to 0.2175 — the largest single gain within the PCA models. This confirms that `cut_ord`, `color_ord`, and `clarity_ord` carry substantial price information that the continuous-feature PCA cannot capture on its own.
 
-**Test set generalisation:** PCA Model 1 (truncated components) was evaluated on the withheld test set to provide a generalisation estimate comparable to the Part A test result for Model 4. Consistency between validation and test RMSE for both models indicates that neither overfits to the validation distribution.
+**Overall verdict:** All models are numerically stable. PCA-based regression is a valid, multicollinearity-free approach, but on this dataset it underperforms Model 4 (RMSE 0.1336) because PCA cannot replicate the log–log price–size relationship. PCA Model 2 is the best PCA specification, but it still sits 0.08 log-units above Model 4. The interpretability trade-off also remains unfavourable: PC coefficients describe abstract variance axes rather than the original diamond attributes.
 
 ---
 
@@ -356,7 +353,7 @@ Diamonds at round carat values (0.5, 1.0, 1.5, 2.0) are overrepresented due to r
 
 **Ordinal spacing assumption:** Encoding ordinal grades as integers imposes equal-spacing — a one-unit increase in `cut_ord` from Fair to Good is assumed to have the same price effect as a one-unit increase from Premium to Ideal. If the actual grade-to-price mapping is non-linear, this misspecification will distort coefficient estimates on the quality variables.
 
-**Log-linearity in size:** The log–log specification is an approximation. The true price–carat function likely has kinks at round carat values and may have different curvatures in different market segments. Residual heteroscedasticity in Model 4 would be a sign that the log transformation has not fully resolved this curvature.
+**Log–log specification:** The log–log specification is an approximation. The true price–carat function likely has kinks at round carat values and may have different curvatures in different market segments. Residual heteroscedasticity in Model 4 would be a sign that the log transformation has not fully resolved this curvature.
 
 ### Dataset Limitations
 
